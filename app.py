@@ -359,7 +359,7 @@ def main():
 
                         start_date = search_params["start_date"]
                         period_days = search_params["period_days"]
-                        st.write(period_days)
+
                         result = api_manager.search(
                             sources=selected_aliases,
                             start_date=start_date,
