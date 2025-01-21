@@ -293,22 +293,22 @@ class APIManager:
         sources,
         keywords,
     ):
-        # if self._is_localhost():
-        #     result = asyncio.run(self._get_dummy_report())
-        #     return result
-        # else:
-        try:
-            response = requests.post(
-                self.report_maker_url,
-                json={
-                    "sources": sources,
-                    "keywords": keywords,
-                },
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            raise Exception(f"API 요청 실패: {str(e)}")
+        if self._is_localhost():
+            result = asyncio.run(self._get_dummy_report())
+            return result
+        else:
+            try:
+                response = requests.post(
+                    self.report_maker_url,
+                    json={
+                        "sources": sources,
+                        "keywords": keywords,
+                    },
+                )
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                raise Exception(f"API 요청 실패: {str(e)}")
 
 
 def main():
