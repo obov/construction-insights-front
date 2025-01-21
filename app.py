@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 from urllib.parse import urlparse
 import requests
+import re
 
 keyword_finder_url = st.secrets["keyword-finder-url"]
 report_maker_url = st.secrets["report-maker-url"]
@@ -79,7 +80,11 @@ class Settings:
 
     def get_search_params(self):
         selected_date = st.session_state.get(self.date_key)
-        period_days = st.session_state.get(self.period_key)
+        selected_period = st.session_state.get(self.period_key)
+
+        # 숫자만 추출
+        period_days = int(re.search(r"\d+", selected_period)[0])
+
         return {
             "start_date": selected_date.strftime("%Y-%m-%d"),
             "period_days": period_days,
@@ -354,7 +359,7 @@ def main():
 
                         start_date = search_params["start_date"]
                         period_days = search_params["period_days"]
-
+                        st.write(period_days)
                         result = api_manager.search(
                             sources=selected_aliases,
                             start_date=start_date,
