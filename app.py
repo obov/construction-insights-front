@@ -243,19 +243,8 @@ class APIManager:
         self.report_maker_url = report_maker_url
 
     def _is_localhost(self):
-        try:
-            server_url = st.query_params.get("server", "")
-            if not server_url:  # 로컬 개발 서버
-                return True
-
-            parsed_url = urlparse(server_url)
-            hostname = parsed_url.hostname
-            return hostname in ["localhost", "127.0.0.1"] or hostname.startswith(
-                "192.168."
-            )
-        except Exception as e:
-            st.error(f"URL 파싱 에러: {str(e)}")
-            return False
+        is_local = st.query_params.get("localhost", "")
+        return bool(is_local)
 
     async def _get_dummy_data(self):
         dummy_file = Path(__file__).parent / "dummy.json"
