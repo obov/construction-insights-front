@@ -45,7 +45,7 @@ class SearchSourceList:
 
     def get_checked_sources(self, task_type: TaskType):
         return [
-            source
+            source.alias
             for source in self.sources
             if st.session_state.get(f"{task_type.value}_{source.checkbox_key}", False)
         ]
@@ -293,22 +293,22 @@ class APIManager:
         sources,
         keywords,
     ):
-        if self._is_localhost():
-            result = asyncio.run(self._get_dummy_report())
-            return result
-        else:
-            try:
-                response = requests.post(
-                    self.report_maker_url,
-                    json={
-                        "sources": sources,
-                        "keywords": keywords,
-                    },
-                )
-                response.raise_for_status()
-                return response.json()
-            except Exception as e:
-                raise Exception(f"API 요청 실패: {str(e)}")
+        # if self._is_localhost():
+        #     result = asyncio.run(self._get_dummy_report())
+        #     return result
+        # else:
+        try:
+            response = requests.post(
+                self.report_maker_url,
+                json={
+                    "sources": sources,
+                    "keywords": keywords,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            raise Exception(f"API 요청 실패: {str(e)}")
 
 
 def main():
@@ -348,14 +348,14 @@ def main():
                 if settings.get_search_period() in keyword_logs.get_searched_periods():
                     st.error("이미 검색한 기간입니다.")
                 else:
+                    search_params = settings.get_search_params()
+                    search_period = settings.get_search_period()
                     try:
                         # 검색 버튼과 실행
                         selected_sources = searchlist.get_checked_sources(
                             TaskType.KEYWORD
                         )
-                        selected_aliases = [source.alias for source in selected_sources]
-                        search_params = settings.get_search_params()
-                        search_period = settings.get_search_period()
+                        selected_aliases = [source for source in selected_sources]
 
                         start_date = search_params["start_date"]
                         period_days = search_params["period_days"]
