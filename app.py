@@ -524,19 +524,19 @@ def main():
     stored_user = localS.getItem("user")
 
     # user 값이 없고 localStorage에도 없는 경우
-    if not query_user and not stored_user:
-        # 새 사용자 생성
-        result = db_handler.create_user_if_needed()
-        if result and "user_id" in result:
-            new_user_id = str(result["user_id"])
-            # localStorage에 저장
-            localS.setItem("user", new_user_id)
+    # if not query_user and not stored_user:
+    #     # 새 사용자 생성
+    #     result = db_handler.create_user_if_needed()
+    #     if result and "user_id" in result:
+    #         new_user_id = str(result["user_id"])
+    #         # localStorage에 저장
+    #         localS.setItem("user", new_user_id)
 
-    # query parameter에는 있지만 localStorage에는 없는 경우
-    elif query_user and not stored_user:
-        localS.setItem("user", query_user)
+    # # query parameter에는 있지만 localStorage에는 없는 경우
+    # elif query_user and not stored_user:
+    #     localS.setItem("user", "query_user")
 
-    user_id = localS.getItem("user")
+    user_id = "1020"
 
     # DB 핸들러 초기화 및 사용자 설정 가져오기
     db_handler = DBHandler()
