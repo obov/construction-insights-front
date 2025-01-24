@@ -3,15 +3,25 @@ from enum import Enum
 import json
 import asyncio
 from pathlib import Path
-from urllib.parse import urlparse
 import requests
 import re
+import datetime
+from streamlit_local_storage import LocalStorage
+
 
 keyword_finder_url = st.secrets["keyword-finder-url"]
 report_maker_url = st.secrets["report-maker-url"]
+db_handler_url = st.secrets["db-handler-url"]
+app_manager_url = st.secrets["app-manager-url"]
 
-
+user_id = None
 keyword_logs = None
+db_handler = None
+
+
+class SearchKeywordType(Enum):
+    MANUAL = "manual"
+    AUTO = "auto"
 
 
 class TaskType(Enum):
@@ -19,36 +29,132 @@ class TaskType(Enum):
     REPORT = "report"
 
 
-class SearchSource(Enum):
-    ENR = ("Engineering News-Record (ENR)", "enr", "https://www.enr.com/")
-    CD = ("Construction Dive", "cd", "https://www.constructiondive.com/")
-
-    def __init__(self, title, alias, url):
-        self.title = title
-        self.url = url
-        self.checkbox_key = f"checkbox_{self.name}"
-        self.alias = alias
+class SettingsType(Enum):
+    AUTO_CRON = "auto-cron"
+    AUTO_KEYWORD = "auto-keyword"
+    AUTO_REPORT = "auto-report"
+    KEYWORD = "keyword"
+    REPORT = "report"
 
 
 class SearchSourceList:
-    def __init__(self):
-        self.sources = [
-            SearchSource.ENR,
-            SearchSource.CD,
-        ]
+    def __init__(self, sources=None):
+        self.sources = sources or []
 
     def show_checkbox(self, task_type: TaskType):
+        """소스별 체크박스를 표시합니다."""
         for source in self.sources:
+            checkbox_key = f"{task_type.value}_checkbox_{source['Alias']}"
             st.checkbox(
-                source.title, value=True, key=f"{task_type.value}_{source.checkbox_key}"
+                source["Name"], value=True, key=checkbox_key, help=source["Url"]
             )
 
     def get_checked_sources(self, task_type: TaskType):
+        """체크된 소스의 alias 목록을 반환합니다."""
         return [
-            source.alias
+            source["Alias"]
             for source in self.sources
-            if st.session_state.get(f"{task_type.value}_{source.checkbox_key}", False)
+            if st.session_state.get(
+                f"{task_type.value}_checkbox_{source['Alias']}", False
+            )
         ]
+
+
+class DisplayManager:
+    def show_settings(self, setting, settings_type: SettingsType):
+        if settings_type == SettingsType.AUTO_CRON:
+            st.toggle(
+                setting["autoDaily"]["executionStatusLabel"],
+                value=setting["autoDaily"]["executionStatus"],
+                key=setting["autoDaily"]["executionStatusKey"],
+                on_change=lambda: DBHandler().update_setting(
+                    user_id=setting["userId"],
+                    key=setting["autoDaily"]["executionStatusKey"],
+                    value={
+                        "autoDaily": {
+                            "executionStatus": not setting["autoDaily"][
+                                "executionStatus"
+                            ]
+                        }
+                    },
+                ),
+            )
+
+            st.time_input(
+                setting["autoDaily"]["executionTimeLabel"],
+                value=datetime.datetime.strptime(
+                    setting["autoDaily"]["executionTime"], "%H:%M"
+                ),
+                key=setting["autoDaily"]["executionTimeKey"],
+                on_change=lambda: DBHandler().update_setting(
+                    user_id=setting["userId"],
+                    key=setting["autoDaily"]["executionTimeKey"],
+                    value={
+                        "autoDaily": {
+                            "executionTime": st.session_state.get(
+                                setting["autoDaily"]["executionTimeKey"]
+                            ).strftime("%H:%M")
+                        }
+                    },
+                ),
+            )
+
+        elif settings_type == SettingsType.KEYWORD:
+            setting["dateOptionMap"] = dict(
+                sorted(setting["dateOptionMap"].items(), key=lambda item: item[1])
+            )
+
+            st.date_input(
+                setting["dateSelectLabel"],
+                key=setting["dateSelectKey"],
+            )
+
+            st.selectbox(
+                setting["dateOptionLabel"],
+                options=setting["dateOptionMap"].keys(),
+                key=setting["dateOptionKey"],
+            )
+
+        for source in setting.get("sources", []):
+
+            def on_change_callback(source=source):
+                DBHandler().update_setting(
+                    user_id=setting["userId"],
+                    key=source["checkboxKey"],
+                    value={
+                        "sources": [
+                            {
+                                "checkboxKey": source["checkboxKey"],
+                                "isSelect": not source["isSelect"],
+                            }
+                        ]
+                    },
+                )
+
+            st.checkbox(
+                source["name"],
+                value=source["isSelect"],
+                key=source["checkboxKey"],
+                help=source["url"],
+                on_change=on_change_callback,
+            )
+
+    def show_keywords(self, keywords):
+        # st.json(keywords)
+        date = st.expander(keywords["date"], expanded=True)
+        if len(keywords["data"]) > 0:
+            with date:
+                for keyword in keywords["data"]:
+                    st.checkbox(
+                        keyword["keyword"],
+                        value=False,
+                        key=keyword[
+                            "checkboxKey"
+                        ],  # VIEW#DATE#2025-01-23#KEYWORD#artificial_intelligence_in_construction
+                    )
+
+    def show_selected_keywords(self):
+        st.session_state["selected_keywords"] = []
 
 
 class Settings:
@@ -111,10 +217,44 @@ class Settings:
 
 
 class KeywordLogs:
-    def __init__(self):
+    def __init__(self, user_settings=None, app_config=None):
         self.log_key = "response_logs"
+        self.settings_key = "user_settings"
+        self.app_config = app_config["data"]
+        # 세션 스테이트 초기화
         if self.log_key not in st.session_state:
             st.session_state[self.log_key] = []
+
+        # 사용자 설정 저장
+        if user_settings:
+            st.session_state[self.settings_key] = user_settings["data"]["viewSettings"]
+
+    def get_app_title(self):
+        return self.app_config["title"]
+
+    def get_settings(self):
+        """설정 목록을 반환합니다."""
+        return st.session_state.get(self.settings_key, [])
+
+    def get_setting(self, settings_type: SettingsType):
+        """설정 정보를 반환합니다."""
+        return next(
+            (
+                item
+                for item in self.get_settings()
+                if item["settingType"] == settings_type.value
+            ),
+            None,
+        )
+
+    def get_date_select_and_option(self):
+        keyword_setting = self.get_setting(SettingsType.KEYWORD)
+        date_option_key = keyword_setting["dateOptionKey"]
+        date_select_key = keyword_setting["dateSelectKey"]
+        return (
+            st.session_state.get(date_select_key, ""),
+            keyword_setting["dateOptionMap"][st.session_state.get(date_option_key, "")],
+        )
 
     def add_log(self, data=None, error_message=None, **kwargs):
         from datetime import datetime
@@ -162,13 +302,14 @@ class KeywordLogs:
 
     def get_selected_keywords(self):
         """현재 선택된 모든 키워드를 반환합니다."""
-        return sorted(
-            [
-                k.split("_")[2]
-                for k, v in st.session_state.items()
-                if k.startswith("sk_") and v
-            ]
-        )
+        selected = []
+        for key, value in st.session_state.items():
+            if key.startswith("VIEW#DATE#") and "#KEYWORD#" in key and value:
+                # VIEW#DATE#2025-01-23#KEYWORD#artificial_intelligence_in_construction 형식에서
+                # artificial_intelligence_in_construction 부분만 추출
+                keyword = key.split("#KEYWORD#")[1]
+                selected.append(keyword)
+        return sorted(selected)
 
     def is_keyword_selected(self, keyword: str):
         """해당 키워드가 선택되었는지 확인합니다."""
@@ -210,14 +351,14 @@ class ResponseLogger:
                         st.text(f"[{log['timestamp']}]")
                     with col2:
                         st.text(f"{log['search_period']} Success")
-                    st.json(log["data"])
+                    # st.json(log["data"])
                 elif log.get("type") == "report-make":
                     col1, col2 = st.columns([1, 1])
                     with col1:
                         st.text(f"[{log['timestamp']}]")
                     with col2:
                         st.text(f"{', '.join(log['selected_keywords'])} Success")
-                    st.json(log["data"])
+                    # st.json(log["data"])
 
 
 class KeywordResultDisplay:
@@ -246,6 +387,7 @@ class APIManager:
     def __init__(self):
         self.keyword_finder_url = keyword_finder_url
         self.report_maker_url = report_maker_url
+        self.app_manager_url = app_manager_url
 
     def _is_localhost(self):
         is_local = st.query_params.get("localhost", "")
@@ -265,43 +407,41 @@ class APIManager:
         await asyncio.sleep(1)
         return dummy_data
 
-    def search(self, sources, start_date, period_days):
+    def search(
+        self,
+        search_keyword_type: SearchKeywordType,
+        start_date,
+        period_days,
+    ):
         """
         키워드 검색을 실행하고 결과를 반환합니다.
         """
-        if self._is_localhost():
-            with st.spinner("데이터를 불러오는 중..."):
-                result = asyncio.run(self._get_dummy_data())
-            return result
-        else:
-            try:
-                response = requests.post(
-                    self.keyword_finder_url,
-                    json={
-                        "sources": sources,
-                        "start_date": start_date,
-                        "period_days": period_days,
-                    },
-                )
-                response.raise_for_status()
-                return response.json()
-            except Exception as e:
-                raise Exception(f"API 요청 실패: {str(e)}")
+        try:
+            response = requests.post(
+                f"{self.app_manager_url}/searchKeyword",
+                json={
+                    "user_id": user_id,
+                    "search_keyword_type": search_keyword_type.value,
+                    "start_date": start_date,
+                    "period_days": period_days,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            raise Exception(f"API 요청 실패: {str(e)}")
 
-    def make_report(
-        self,
-        sources,
-        keywords,
-    ):
+    def make_report(self, keywords, search_keyword_type: SearchKeywordType):
         if self._is_localhost():
             result = asyncio.run(self._get_dummy_report())
             return result
         else:
             try:
                 response = requests.post(
-                    self.report_maker_url,
+                    f"{self.app_manager_url}/makeReport",
                     json={
-                        "sources": sources,
+                        "user_id": user_id,
+                        "search_keyword_type": search_keyword_type.value,
                         "keywords": keywords,
                     },
                 )
@@ -311,20 +451,122 @@ class APIManager:
                 raise Exception(f"API 요청 실패: {str(e)}")
 
 
-def main():
-    global keyword_logs
+class DBHandler:
+    def __init__(self):
+        self.base_url = st.secrets["db-handler-url"]
 
-    # KeywordLogs 초기화
-    keyword_logs = KeywordLogs()
+    def create_user_if_needed(self):
+        """Query 파라미터의 user 값을 확인하여 필요한 경우 사용자를 생성합니다."""
+        try:
+            if user_id and user_id.isdigit():
+                response = requests.post(
+                    f"{self.base_url}/createUser", json={"user_id": int(user_id)}
+                )
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            st.error(f"사용자 생성 실패: {str(e)}")
+            return None
+
+    def get_settings(self):
+        """사용자 설정과 소스 정보를 가져옵니다."""
+        try:
+            if user_id and user_id.isdigit():
+                response = requests.get(
+                    f"{self.base_url}/getSettings",
+                    params={"user_id": int(user_id)},
+                )
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            st.error(f"사용자 조회 실패: {str(e)}")
+            return None
+
+    def update_setting(
+        self,
+        user_id: str,
+        key: str,
+        value,
+    ):
+
+        try:
+            requests.put(
+                f"{self.base_url}updateSetting",
+                json={
+                    "user_id": user_id,
+                    "setting_key": key,
+                    "value": value,
+                },
+            )
+        except Exception as e:
+            st.error(f"사용자 설정 업데이트 실패: {str(e)}")
+
+    def get_app_config(self):
+        response = requests.get(f"{self.base_url}/getAppConfig")
+        response.raise_for_status()
+        return response.json()
+
+    def get_keywords_by_date(self, date):
+        response = requests.get(
+            f"{self.base_url}/getKeywords",
+            params={"date": date},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+def main():
+    global keyword_logs, db_handler, user_id
+    localS = LocalStorage()
+
+    # user 값을 query parameter 또는 localStorage에서 가져오기
+    query_user = st.query_params.get("user")
+    stored_user = localS.getItem("user")
+
+    # user 값이 없고 localStorage에도 없는 경우
+    if not query_user and not stored_user:
+        # 새 사용자 생성
+        result = db_handler.create_user_if_needed()
+        if result and "user_id" in result:
+            new_user_id = str(result["user_id"])
+            # localStorage에 저장
+            localS.setItem("user", new_user_id)
+
+    # query parameter에는 있지만 localStorage에는 없는 경우
+    elif query_user and not stored_user:
+        localS.setItem("user", query_user)
+
+    user_id = localS.getItem("user")
+
+    # DB 핸들러 초기화 및 사용자 설정 가져오기
+    db_handler = DBHandler()
+    user_settings = db_handler.get_settings()
+    app_config = db_handler.get_app_config()
+    # KeywordLogs 초기화 (사용자 설정 전달)
+    keyword_logs = KeywordLogs(user_settings, app_config)
+
+    # Settings 초기화
+    settings = Settings()
 
     # 나머지 객체 초기화
-    searchlist = SearchSourceList()
-    settings = Settings()
+    sources = user_settings.get("sources", []) if user_settings else []
+    searchlist = SearchSourceList(sources)
     api_manager = APIManager()
     response_logger = ResponseLogger()
     keyword_display = KeywordResultDisplay()
+    display_manager = DisplayManager()
 
-    st.title("해외 건설 동향 리포트 작성")
+    # response = api_manager.search(
+    #     SearchKeywordType.MANUAL,
+    #     "2025-01-23",
+    #     1,
+    # )
+    # st.json(response)
+
+    st.title(keyword_logs.get_app_title())
+    # 페이지 로드 시 사용자 생성 확인
+    # db_handler.create_user_if_needed()
+    # st.json(db_handler.get_settings())
 
     with st.sidebar:
         sidebar_top_container = st.sidebar.container()
@@ -333,12 +575,36 @@ def main():
         with sidebar_bottom_container:
             with st.sidebar.expander("Settings", expanded=False):
                 st.markdown("---")
-                st.markdown("### 키워드 검색")
-                settings.show_date_settings()
-                searchlist.show_checkbox(TaskType.KEYWORD)
+                st.markdown("##### 키워드 검색")
+                keyword_setting = keyword_logs.get_setting(SettingsType.KEYWORD)
+                if keyword_setting:
+                    display_manager.show_settings(keyword_setting, SettingsType.KEYWORD)
                 st.markdown("---")
-                st.markdown("### 보고서 작성")
-                searchlist.show_checkbox(TaskType.REPORT)
+                st.markdown("##### 보고서 작성")
+                report_setting = keyword_logs.get_setting(SettingsType.REPORT)
+                if report_setting:
+                    display_manager.show_settings(report_setting, SettingsType.REPORT)
+                st.markdown("---")
+                st.markdown("##### 자동화")
+                auto_cron_setting = keyword_logs.get_setting(SettingsType.AUTO_CRON)
+                if auto_cron_setting:
+                    display_manager.show_settings(
+                        auto_cron_setting, SettingsType.AUTO_CRON
+                    )
+                st.markdown("###### 키워드 검색")
+                auto_keyword_setting = keyword_logs.get_setting(
+                    SettingsType.AUTO_KEYWORD
+                )
+                if auto_keyword_setting:
+                    display_manager.show_settings(
+                        auto_keyword_setting, SettingsType.AUTO_KEYWORD
+                    )
+                st.markdown("###### 보고서 작성")
+                auto_report_setting = keyword_logs.get_setting(SettingsType.AUTO_REPORT)
+                if auto_report_setting:
+                    display_manager.show_settings(
+                        auto_report_setting, SettingsType.AUTO_REPORT
+                    )
                 st.markdown("---")
 
         with sidebar_top_container:
@@ -348,7 +614,7 @@ def main():
                 if settings.get_search_period() in keyword_logs.get_searched_periods():
                     st.error("이미 검색한 기간입니다.")
                 else:
-                    search_params = settings.get_search_params()
+                    # search_params = settings.get_search_params()
                     search_period = settings.get_search_period()
                     try:
                         # 검색 버튼과 실행
@@ -356,13 +622,15 @@ def main():
                             TaskType.KEYWORD
                         )
                         selected_aliases = [source for source in selected_sources]
-
-                        start_date = search_params["start_date"]
-                        period_days = search_params["period_days"]
+                        # hi = keyword_logs.get_date_select_and_option()
+                        # st.write(hi)
+                        start_date, period_days = (
+                            keyword_logs.get_date_select_and_option()
+                        )
 
                         result = api_manager.search(
-                            sources=selected_aliases,
-                            start_date=start_date,
+                            SearchKeywordType.MANUAL,
+                            start_date=start_date.strftime("%Y-%m-%d"),
                             period_days=period_days,
                         )
 
@@ -382,30 +650,52 @@ def main():
             selected_keywords = keyword_logs.get_selected_keywords()
             if len(selected_keywords) > 0:
                 if st.button("보고서 작성"):
-                    if selected_keywords in keyword_logs.get_keywords_report_made():
-                        st.error("이미 보고서가 작성되었습니다.")
-                    else:
-                        with st.spinner("보고서 작성 중..."):
-                            sources = searchlist.get_checked_sources(TaskType.REPORT)
-                            report_result = api_manager.make_report(
-                                sources=sources, keywords=selected_keywords
-                            )
-                        keyword_logs.add_log(
-                            data=report_result,
-                            type="report-make",
-                            selected_keywords=selected_keywords,
-                        )
-                        keyword_logs.add_keywords_report_made(selected_keywords)
+                    report_result = api_manager.make_report(
+                        keywords=selected_keywords,
+                        search_keyword_type=SearchKeywordType.MANUAL,
+                    )
+                    # st.json(report_result)
+                    keyword_logs.add_log(
+                        data=report_result,
+                        type="report-make",
+                        selected_keywords=selected_keywords,
+                    )
 
     # 최신 로그 데이터 확인 및 결과 표시
     searched_periods = keyword_logs.get_searched_periods()
     selected_keywords = keyword_logs.get_selected_keywords()
 
     col1, col2 = st.columns([3, 1])
-    if len(searched_periods) > 0:
-        with col2:
-            for period in searched_periods:
-                keyword_display.show_results(period)
+    # if len(searched_periods) > 0:
+    with col2:
+        for date in [
+            "2025-01-24",
+            "2025-01-23",
+            "2025-01-22",
+            "2025-01-21",
+            "2025-01-20",
+            "2025-01-19",
+            "2025-01-18",
+            "2025-01-17",
+            "2025-01-16",
+            "2025-01-15",
+            "2025-01-14",
+            "2025-01-13",
+            "2025-01-12",
+            "2025-01-11",
+            "2025-01-10",
+            "2025-01-09",
+            "2025-01-08",
+            "2025-01-07",
+            "2025-01-06",
+            "2025-01-05",
+            "2025-01-04",
+            "2025-01-03",
+            "2025-01-02",
+            "2025-01-01",
+        ]:
+            keywords = db_handler.get_keywords_by_date(date)
+            display_manager.show_keywords(keywords)
 
     with col1:
         selected_keywords = keyword_logs.get_selected_keywords()
@@ -422,11 +712,12 @@ def main():
         reports = keyword_logs.get_reports()
         if len(reports) > 0:
             for report in reports:
+                # st.json(report)
                 with st.expander(
-                    f"{report['data']['keywords']} : {report['data']['report']['title']}",
+                    f"{report['data']['data']['keywords']} : {report['data']['data']['report']['title']}",
                     expanded=True,
                 ):
-                    st.markdown(report["data"]["report"]["texts"])
+                    st.markdown(report["data"]["data"]["report"]["texts"])
 
     with st.sidebar:
         logs = keyword_logs.get_logs()
