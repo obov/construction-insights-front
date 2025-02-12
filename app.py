@@ -80,24 +80,32 @@ class DisplayManager:
                 ),
             )
 
-            st.time_input(
-                setting["autoDaily"]["executionTimeLabel"],
-                value=datetime.datetime.strptime(
-                    setting["autoDaily"]["executionTime"], "%H:%M"
-                ),
-                key=setting["autoDaily"]["executionTimeKey"],
-                on_change=lambda: DBHandler().update_setting(
-                    user_id=setting["userId"],
+            if setting["autoDaily"]["executionStatus"]:
+                st.text_input(
+                    setting["autoDaily"]["executionTimeLabel"],
+                    value=setting["autoDaily"]["executionTime"],
                     key=setting["autoDaily"]["executionTimeKey"],
-                    value={
-                        "autoDaily": {
-                            "executionTime": st.session_state.get(
-                                setting["autoDaily"]["executionTimeKey"]
-                            ).strftime("%H:%M")
-                        }
-                    },
-                ),
-            )
+                    disabled=True,  # 비활성화
+                )
+            else:
+                st.time_input(
+                    setting["autoDaily"]["executionTimeLabel"],
+                    value=datetime.datetime.strptime(
+                        setting["autoDaily"]["executionTime"], "%H:%M"
+                    ),
+                    key=setting["autoDaily"]["executionTimeKey"],
+                    on_change=lambda: DBHandler().update_setting(
+                        user_id=setting["userId"],
+                        key=setting["autoDaily"]["executionTimeKey"],
+                        value={
+                            "autoDaily": {
+                                "executionTime": st.session_state.get(
+                                    setting["autoDaily"]["executionTimeKey"]
+                                ).strftime("%H:%M")
+                            }
+                        },
+                    ),
+                )
 
         elif settings_type == SettingsType.KEYWORD:
             setting["dateOptionMap"] = dict(
@@ -521,7 +529,7 @@ def main():
 
     # user 값을 query parameter 또는 localStorage에서 가져오기
     query_user = st.query_params.get("user")
-    stored_user = localS.getItem("user")
+    # stored_user = localS.getItem("user")
 
     # user 값이 없고 localStorage에도 없는 경우
     # if not query_user and not stored_user:
@@ -529,14 +537,12 @@ def main():
     #     result = db_handler.create_user_if_needed()
     #     if result and "user_id" in result:
     #         new_user_id = str(result["user_id"])
-    #         # localStorage에 저장
-    #         localS.setItem("user", new_user_id)
 
     # # query parameter에는 있지만 localStorage에는 없는 경우
     # elif query_user and not stored_user:
     #     localS.setItem("user", "query_user")
 
-    user_id = "1020"
+    user_id = query_user if query_user else "1026"
 
     # DB 핸들러 초기화 및 사용자 설정 가져오기
     db_handler = DBHandler()
@@ -668,32 +674,7 @@ def main():
     col1, col2 = st.columns([3, 1])
     # if len(searched_periods) > 0:
     with col2:
-        for date in [
-            "2025-01-24",
-            "2025-01-23",
-            "2025-01-22",
-            "2025-01-21",
-            "2025-01-20",
-            "2025-01-19",
-            "2025-01-18",
-            "2025-01-17",
-            "2025-01-16",
-            "2025-01-15",
-            "2025-01-14",
-            "2025-01-13",
-            "2025-01-12",
-            "2025-01-11",
-            "2025-01-10",
-            "2025-01-09",
-            "2025-01-08",
-            "2025-01-07",
-            "2025-01-06",
-            "2025-01-05",
-            "2025-01-04",
-            "2025-01-03",
-            "2025-01-02",
-            "2025-01-01",
-        ]:
+        for date in ["2025-02-12", "2025-02-11", "2025-02-10", "2025-02-09"]:
             keywords = db_handler.get_keywords_by_date(date)
             display_manager.show_keywords(keywords)
 
