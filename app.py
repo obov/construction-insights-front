@@ -300,7 +300,7 @@ class Settings:
             return f"{start_date.strftime('%Y-%m-%d')}~{end_date.strftime('%Y-%m-%d')}"
 
     def get_search_button_text(self):
-        return f"키워드 검색 시작 {self.get_search_period()}"
+        return f"키워드 검색 {self.get_search_period()}"
 
 
 class KeywordLogs:
