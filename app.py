@@ -139,6 +139,8 @@ class DisplayManager:
                     },
                 )
 
+            if source["groupId"]:
+                st.write(source["groupId"])
             st.checkbox(
                 source["name"],
                 value=source["isSelect"],
@@ -146,6 +148,41 @@ class DisplayManager:
                 help=source["url"],
                 on_change=on_change_callback,
             )
+
+        # for sourceGroup in setting.get("sourceGroups", []):
+        #     st.json(sourceGroup)
+        #     st.write(sourceGroup["name"])
+
+        #     for source in sourceGroup["sources"]:
+
+        #         def on_change_callback(source=source):
+        #             DBHandler().update_setting(
+        #                 user_id=setting["userId"],
+        #                 key=source["checkboxKey"],
+        #                 value={
+        #                     "sourceGroups": [
+        #                         {
+        #                             "index": sourceGroup["index"],
+        #                             "sources": [
+        #                                 {
+        #                                     "index": source["index"],
+        #                                     "checkboxKey": source["checkboxKey"],
+        #                                     "isSelect": not source["isSelect"],
+        #                                 }
+        #                             ],
+        #                         }
+        #                     ]
+        #                 },
+        #             )
+
+        #         st.checkbox(
+        #             # source["name"],
+        #             "?",
+        #             value=source["isSelect"],
+        #             key=source["checkboxKey"],
+        #             help=source["url"],
+        #             on_change=on_change_callback,
+        #         )
 
     def show_keywords(self, keywords):
         # st.json(keywords)
@@ -160,6 +197,48 @@ class DisplayManager:
                             "checkboxKey"
                         ],  # VIEW#DATE#2025-01-23#KEYWORD#artificial_intelligence_in_construction
                     )
+
+    def show_keywords_searched(self, keywords_keyword, keywords_document):
+        tab1, tab2 = st.tabs(["Keyword", "News"])
+
+        with tab1:
+            for date, keyword in keywords_keyword.items():
+                date_expander = st.expander(date, expanded=False)
+                with date_expander:
+                    for keyword in keyword:
+                        st.checkbox(
+                            keyword["keyword"]["viewLabel"],
+                            value=False,
+                            key=keyword["keyword"]["viewCheckboxKey"],
+                        )
+                        for document in keyword["documents"]:
+                            st.markdown(
+                                "<p style='font-size:14px;margin-left:18px;'>\n"
+                                f"<a style='text-decoration: none; \n"
+                                "color: inherit;' \n"
+                                f"href='{document['url']}' target='_blank'>{document['titleShort']}</a>\n"
+                                "</p>",
+                                unsafe_allow_html=True,
+                            )
+        with tab2:
+            for date, document in keywords_document.items():
+                date_expander = st.expander(date, expanded=False)
+                with date_expander:
+                    for document in document:
+                        st.markdown(
+                            "<p style='font-size:20px;margin-left:-4px;'>\n"
+                            f"<a style='text-decoration: none; \n"
+                            "color: inherit;' \n"
+                            f"href='{document['url']}' target='_blank'>{document['titleShort']}</a>\n"
+                            "</p>",
+                            unsafe_allow_html=True,
+                        )
+                        for keyword in document["keywords"]:
+                            st.checkbox(
+                                keyword["viewLabel"],
+                                value=False,
+                                key=keyword["viewCheckboxKey"],
+                            )
 
     def show_selected_keywords(self):
         st.session_state["selected_keywords"] = []
@@ -458,6 +537,25 @@ class APIManager:
             except Exception as e:
                 raise Exception(f"API 요청 실패: {str(e)}")
 
+    def make_report_new(self, keywords, documents):
+        if self._is_localhost():
+            result = asyncio.run(self._get_dummy_report())
+            return result
+        else:
+            try:
+                response = requests.post(
+                    f"{self.app_manager_url}/makeReportNew",
+                    json={
+                        "user_id": user_id,
+                        "keywords": keywords,
+                        "news": documents,
+                    },
+                )
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                raise Exception(f"API 요청 실패: {str(e)}")
+
 
 class DBHandler:
     def __init__(self):
@@ -522,6 +620,13 @@ class DBHandler:
         response.raise_for_status()
         return response.json()
 
+    def get_keywords_searched(self):
+        response = requests.get(
+            f"{self.base_url}/getKeywordsSearched",
+        )
+        response.raise_for_status()
+        return response.json()
+
 
 def main():
     global keyword_logs, db_handler, user_id
@@ -542,8 +647,8 @@ def main():
     # elif query_user and not stored_user:
     #     localS.setItem("user", "query_user")
 
-    user_id = query_user if query_user else "1026"
-
+    user_id = query_user if query_user else "1038"
+    st.write(user_id)
     # DB 핸들러 초기화 및 사용자 설정 가져오기
     db_handler = DBHandler()
     user_settings = db_handler.get_settings()
@@ -562,13 +667,6 @@ def main():
     keyword_display = KeywordResultDisplay()
     display_manager = DisplayManager()
 
-    # response = api_manager.search(
-    #     SearchKeywordType.MANUAL,
-    #     "2025-01-23",
-    #     1,
-    # )
-    # st.json(response)
-
     st.title(keyword_logs.get_app_title())
     # 페이지 로드 시 사용자 생성 확인
     # db_handler.create_user_if_needed()
@@ -580,38 +678,26 @@ def main():
 
         with sidebar_bottom_container:
             with st.sidebar.expander("Settings", expanded=False):
-                st.markdown("---")
-                st.markdown("##### 키워드 검색")
-                keyword_setting = keyword_logs.get_setting(SettingsType.KEYWORD)
-                if keyword_setting:
-                    display_manager.show_settings(keyword_setting, SettingsType.KEYWORD)
-                st.markdown("---")
-                st.markdown("##### 보고서 작성")
-                report_setting = keyword_logs.get_setting(SettingsType.REPORT)
-                if report_setting:
-                    display_manager.show_settings(report_setting, SettingsType.REPORT)
-                st.markdown("---")
-                st.markdown("##### 자동화")
-                auto_cron_setting = keyword_logs.get_setting(SettingsType.AUTO_CRON)
-                if auto_cron_setting:
-                    display_manager.show_settings(
-                        auto_cron_setting, SettingsType.AUTO_CRON
+                tab1, tab3 = st.tabs(["매일 키워드", "키워드 검색 버튼"])
+                with tab1:
+                    auto_cron_setting = keyword_logs.get_setting(SettingsType.AUTO_CRON)
+                    if auto_cron_setting:
+                        display_manager.show_settings(
+                            auto_cron_setting, SettingsType.AUTO_CRON
+                        )
+                    auto_keyword_setting = keyword_logs.get_setting(
+                        SettingsType.AUTO_KEYWORD
                     )
-                st.markdown("###### 키워드 검색")
-                auto_keyword_setting = keyword_logs.get_setting(
-                    SettingsType.AUTO_KEYWORD
-                )
-                if auto_keyword_setting:
-                    display_manager.show_settings(
-                        auto_keyword_setting, SettingsType.AUTO_KEYWORD
-                    )
-                st.markdown("###### 보고서 작성")
-                auto_report_setting = keyword_logs.get_setting(SettingsType.AUTO_REPORT)
-                if auto_report_setting:
-                    display_manager.show_settings(
-                        auto_report_setting, SettingsType.AUTO_REPORT
-                    )
-                st.markdown("---")
+                    if auto_keyword_setting:
+                        display_manager.show_settings(
+                            auto_keyword_setting, SettingsType.AUTO_KEYWORD
+                        )
+                with tab3:
+                    keyword_setting = keyword_logs.get_setting(SettingsType.KEYWORD)
+                    if keyword_setting:
+                        display_manager.show_settings(
+                            keyword_setting, SettingsType.KEYWORD
+                        )
 
         with sidebar_top_container:
             st.session_state["button_text"] = settings.get_search_button_text()
@@ -671,34 +757,112 @@ def main():
     searched_periods = keyword_logs.get_searched_periods()
     selected_keywords = keyword_logs.get_selected_keywords()
 
-    col1, col2 = st.columns([3, 1])
-    # if len(searched_periods) > 0:
-    with col2:
-        for date in ["2025-02-12", "2025-02-11", "2025-02-10", "2025-02-09"]:
-            keywords = db_handler.get_keywords_by_date(date)
-            display_manager.show_keywords(keywords)
+    def remove_duplicates(data):
+        """리스트에서 중복된 딕셔너리를 제거하는 함수"""
+        unique_data = []
+        for item in data:
+            if item not in unique_data:
+                unique_data.append(item)
+        return unique_data
 
+    col1, col2 = st.columns([3, 5])
+    report_response = None
     with col1:
-        selected_keywords = keyword_logs.get_selected_keywords()
-        keywords_found = keyword_logs.get_all_keywords()
-        if len(selected_keywords) > 0:
+
+        col1_top_container = st.container()
+        col1_bottom_container = st.container()
+        keywords_searched = db_handler.get_keywords_searched()
+        selected_keywords = remove_duplicates(
+            [
+                *[
+                    item["keyword"]
+                    for item in [
+                        v
+                        for k, v in keywords_searched["data"]["viewKeyMap"][
+                            "keywordKeyMap"
+                        ].items()
+                        if st.session_state.get(k, False)
+                    ]
+                ],
+                *[
+                    item["keyword"]
+                    for item in [
+                        v
+                        for k, v in keywords_searched["data"]["viewKeyMap"][
+                            "documentKeyMap"
+                        ].items()
+                        if st.session_state.get(k, False)
+                    ]
+                ],
+            ]
+        )
+        selected_news = remove_duplicates(
+            [
+                *[
+                    page
+                    for item in [
+                        v
+                        for k, v in keywords_searched["data"]["viewKeyMap"][
+                            "keywordKeyMap"
+                        ].items()
+                        if st.session_state.get(k, False)
+                    ]
+                    for page in item["documents"]
+                ],
+                *[
+                    item["document"]
+                    for item in [
+                        v
+                        for k, v in keywords_searched["data"]["viewKeyMap"][
+                            "documentKeyMap"
+                        ].items()
+                        if st.session_state.get(k, False)
+                    ]
+                ],
+            ]
+        )
+        with col1_top_container:
+            report_button = st.button("보고서 작성", key="report_button")
+            if report_button and len(selected_keywords) > 0:
+                st.write("보고서 작성 중...")
+                report_response = api_manager.make_report_new(
+                    selected_keywords,
+                    selected_news,
+                )
+            else:
+                st.write("키워드를 선택해주세요.")
+
             st.write("🏷️ 선택된 키워드:")
-            keyword_display.show_selected_keywords(selected_keywords)
+            for keyword in selected_keywords:
+                st.markdown(
+                    "<p style='font-size:16px;margin-left:18px;'>\n"
+                    f"{keyword['ko']}\n"
+                    "</p>",
+                    unsafe_allow_html=True,
+                )
+            st.write("🏷️ 선택된 뉴스:")
+            for news in selected_news:
+                st.markdown(
+                    "<p style='font-size:16px;margin-left:18px;'>\n"
+                    f"<a style='text-decoration: none; \n"
+                    "color: inherit;' \n"
+                    f"href='{news['url']}' target='_blank'>{news['titleShort']}</a>\n"
+                    "</p>",
+                    unsafe_allow_html=True,
+                )
+            st.divider()
+        with col1_bottom_container:
+            st.write("날짜별 키워드")
 
-        elif len(keywords_found) == 0:
-            st.write("🏷️ 키워드 검색을 시작해주세요.")
-        elif len(keywords_found) > 0:
-            st.write("🏷️ 보고서 작성을 위한 키워드를 선택해주세요.")
+            display_manager.show_keywords_searched(
+                keywords_searched["data"]["keywords"],
+                keywords_searched["data"]["documents"],
+            )
 
-        reports = keyword_logs.get_reports()
-        if len(reports) > 0:
-            for report in reports:
-                # st.json(report)
-                with st.expander(
-                    f"{report['data']['data']['keywords']} : {report['data']['data']['report']['title']}",
-                    expanded=True,
-                ):
-                    st.markdown(report["data"]["data"]["report"]["texts"])
+    with col2:
+
+        if report_response:
+            st.markdown(report_response["data"])
 
     with st.sidebar:
         logs = keyword_logs.get_logs()
