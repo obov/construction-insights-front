@@ -202,7 +202,7 @@ class DisplayManager:
         tab1, tab2 = st.tabs(["Keyword", "News"])
 
         with tab1:
-            for date, keyword in keywords_keyword.items():
+            for date, keyword in list(keywords_keyword.items())[::-1]:
                 date_expander = st.expander(date, expanded=False)
                 with date_expander:
                     for keyword in keyword:
@@ -221,7 +221,7 @@ class DisplayManager:
                                 unsafe_allow_html=True,
                             )
         with tab2:
-            for date, document in keywords_document.items():
+            for date, document in list(keywords_document.items())[::-1]:
                 date_expander = st.expander(date, expanded=False)
                 with date_expander:
                     for document in document:
@@ -678,7 +678,7 @@ def main():
 
         with sidebar_bottom_container:
             with st.sidebar.expander("Settings", expanded=False):
-                tab1, tab3 = st.tabs(["매일 키워드", "키워드 검색 버튼"])
+                tab1, tab3 = st.tabs(["매일 키워드", "키워드 수동 검색"])
                 with tab1:
                     auto_cron_setting = keyword_logs.get_setting(SettingsType.AUTO_CRON)
                     if auto_cron_setting:
