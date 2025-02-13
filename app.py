@@ -648,7 +648,7 @@ def main():
     #     localS.setItem("user", "query_user")
 
     user_id = query_user if query_user else "1038"
-    st.write(user_id)
+    # st.write(user_id)
     # DB 핸들러 초기화 및 사용자 설정 가져오기
     db_handler = DBHandler()
     user_settings = db_handler.get_settings()
