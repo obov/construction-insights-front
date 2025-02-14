@@ -832,7 +832,7 @@ def main():
             else:
                 st.write("키워드를 선택해주세요.")
 
-            st.write("🏷️ 선택된 키워드:")
+            st.write("🏷️ 키워드:")
             for keyword in selected_keywords:
                 st.markdown(
                     "<p style='font-size:16px;margin-left:18px;'>\n"
@@ -840,7 +840,7 @@ def main():
                     "</p>",
                     unsafe_allow_html=True,
                 )
-            st.write("🏷️ 선택된 뉴스:")
+            st.write("🏷️ 뉴스:")
             for news in selected_news:
                 st.markdown(
                     "<p style='font-size:16px;margin-left:18px;'>\n"
